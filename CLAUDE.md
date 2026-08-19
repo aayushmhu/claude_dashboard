@@ -27,6 +27,8 @@
 `settings`:
 - Key/value store (`key TEXT PK, value TEXT`) for user preferences (e.g. budget config)
 
+**Indexes**: Index `idx_events_type_time` on `cc_events(event_type, timestamp)` — composite index for routes that filter both columns together (tokens route, insights, sparklines). Added in migration 003.
+
 **Data access**: All DB queries in API route handlers (`app/api/...`). No direct DB access from client components. Shared SQLite connection in `lib/db.ts`.
 
 **lib/db.ts** registers three MySQL-compatible SQLite UDFs so SQL in routes doesn't need changing:

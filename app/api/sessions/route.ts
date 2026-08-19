@@ -33,8 +33,7 @@ export async function GET(request: NextRequest) {
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const havingClause = hasErrors ? 'HAVING error_count > 0' : '';
 
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT
+    const SESSION_SELECT = `
         s.session_id,
         s.started_at,
         s.last_seen_at,
@@ -55,24 +54,51 @@ export async function GET(request: NextRequest) {
         MAX(CASE WHEN e.event_type IN ('Stop', 'SubagentStop') AND e.entrypoint IS NOT NULL THEN e.entrypoint ELSE NULL END) AS entrypoint,
         MAX(CASE WHEN e.event_type IN ('Stop', 'SubagentStop') AND e.git_branch IS NOT NULL THEN e.git_branch ELSE NULL END) AS git_branch,
         (SELECT COUNT(*) FROM cc_transcript_records t WHERE t.session_id = s.session_id AND t.record_subtype = 'thinking') AS thinking_count,
-        (SELECT COUNT(*) FROM cc_transcript_records t WHERE t.session_id = s.session_id AND t.record_subtype IN ('image', 'document')) AS image_count
-      FROM cc_sessions s
-      LEFT JOIN cc_events e ON s.session_id = e.session_id
-      ${whereClause}
-      GROUP BY s.session_id
-      ${havingClause}
-      ORDER BY s.last_seen_at DESC
-      LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
-    );
+        (SELECT COUNT(*) FROM cc_transcript_records t WHERE t.session_id = s.session_id AND t.record_subtype IN ('image', 'document')) AS image_count`;
 
-    const [[{ total }]] = await pool.query<RowDataPacket[]>(
-      `SELECT COUNT(DISTINCT s.session_id) as total
-      FROM cc_sessions s
-      LEFT JOIN cc_events e ON s.session_id = e.session_id
-      ${whereClause}`,
-      params
-    );
+    let rows: RowDataPacket[];
+    let total: number;
+
+    if (conditions.length === 0 && !hasErrors) {
+      // No-filter path: scope sessions first, then JOIN (avoids full cc_events scan)
+      const [rowsResult] = await pool.query<RowDataPacket[]>(
+        `SELECT ${SESSION_SELECT}
+        FROM (SELECT * FROM cc_sessions ORDER BY last_seen_at DESC LIMIT ?) s
+        LEFT JOIN cc_events e ON s.session_id = e.session_id
+        GROUP BY s.session_id
+        ORDER BY s.last_seen_at DESC`,
+        [limit]
+      );
+      rows = rowsResult;
+
+      const [[countRow]] = await pool.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS total FROM cc_sessions`
+      );
+      total = Number(countRow.total);
+    } else {
+      // Filtered path: keep full JOIN so WHERE/HAVING filters work correctly
+      const [rowsResult] = await pool.query<RowDataPacket[]>(
+        `SELECT ${SESSION_SELECT}
+        FROM cc_sessions s
+        LEFT JOIN cc_events e ON s.session_id = e.session_id
+        ${whereClause}
+        GROUP BY s.session_id
+        ${havingClause}
+        ORDER BY s.last_seen_at DESC
+        LIMIT ? OFFSET ?`,
+        [...params, limit, offset]
+      );
+      rows = rowsResult;
+
+      const [[countRow]] = await pool.query<RowDataPacket[]>(
+        `SELECT COUNT(DISTINCT s.session_id) as total
+        FROM cc_sessions s
+        LEFT JOIN cc_events e ON s.session_id = e.session_id
+        ${whereClause}`,
+        params
+      );
+      total = Number(countRow.total);
+    }
 
     const sessions = rows.map((r) => ({
       ...r,

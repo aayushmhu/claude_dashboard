@@ -58,7 +58,7 @@ export async function GET(request: Request) {
   const start = searchParams.get('start') || '';
   const end = searchParams.get('end') || '';
 
-  const dateConditions: string[] = ['(input_tokens IS NOT NULL OR output_tokens IS NOT NULL)'];
+  const dateConditions: string[] = ["event_type IN ('Stop', 'SubagentStop')"];
   const dateParams: unknown[] = [];
   if (start) { dateConditions.push('timestamp >= ?'); dateParams.push(start); }
   if (end)   { dateConditions.push("timestamp < datetime(?, '+1 day')"); dateParams.push(end); }
@@ -88,7 +88,7 @@ export async function GET(request: Request) {
     const cost = Number(totalsRow.total_cost);
     const cacheEfficiency = (inp + cr) > 0 ? (cr / (inp + cr)) * 100 : 0;
 
-    const projectDateConditions = ['(e.input_tokens IS NOT NULL OR e.output_tokens IS NOT NULL)'];
+    const projectDateConditions = ["e.event_type IN ('Stop', 'SubagentStop')"];
     const projectDateParams: unknown[] = [];
     if (start) { projectDateConditions.push('e.timestamp >= ?'); projectDateParams.push(start); }
     if (end)   { projectDateConditions.push("e.timestamp < datetime(?, '+1 day')"); projectDateParams.push(end); }

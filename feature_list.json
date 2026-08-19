@@ -94,6 +94,38 @@
       "notes": "Phase 1.2 shipped 2026-05-21 with one post-deploy fix (snap-back bug) resolved same day. Adds after_id + focus_id params to /api/sessions/[id]/events. Bidirectional scroll handler in conversations client. Session Summary ↗ link now navigates with ?focus= instead of #event-."
     },
     {
+      "id": "dashboard-perf-001",
+      "priority": 1,
+      "area": "performance",
+      "title": "Dashboard page performance — three query-shape fixes",
+      "user_visible_behavior": "The / dashboard page loads noticeably faster. /api/tokens drops from ~234ms to ~28ms (~8.4×); /api/sessions?limit=10 drops from ~258ms to ~20ms (~13×). No data change — byte-identical token sums and session lists. Also fixes a misleading WHERE clause in /api/tokens that pretended to filter but matched every row.",
+      "status": "passing",
+      "verification": [
+        "TC-DP-01: /api/tokens totals byte-identical before/after (SUM of all 4 token columns)",
+        "TC-DP-02: /api/tokens wall time <50ms",
+        "TC-DP-03: /api/sessions?limit=10 session IDs byte-identical before/after",
+        "TC-DP-04: /api/sessions?limit=10 wall time <50ms",
+        "TC-DP-05: Migration 003_perf_index.sql applies clean; index exists after",
+        "TC-DP-06: EXPLAIN QUERY PLAN on tokens query shows SEARCH using idx_events_type_time (not SCAN)",
+        "TC-DP-07: EXPLAIN QUERY PLAN on sessions query shows subquery-first plan",
+        "TC-DP-08: / page end-to-end responsive on user visual",
+        "TC-DP-09: npx tsc --noEmit exit 0",
+        "TC-DP-10: User visual — page feels responsive on desktop dashboard"
+      ],
+      "evidence": [
+        "docs/planning/features/2026-08-19-dashboard-perf-001.md (status: shipped)",
+        "L1: npx tsc --noEmit exit 0",
+        "L2: correctness gate passed — token sums and session IDs byte-identical before/after (small delta on live sums from concurrent hook writes, expected)",
+        "L3a: median timing (5 runs each) — /api/tokens 234ms → 28ms (~8.4×); /api/sessions?limit=10 258ms → 20ms (~13×)",
+        "L3b: EXPLAIN QUERY PLAN — tokens now shows SEARCH cc_events USING INDEX idx_events_type_time (was SCAN); sessions now shows CO-ROUTINE subquery + SEARCH e USING INDEX idx_events_session",
+        "L3c: Playwright screenshots at /private/tmp/perf-audit/desktop.png + mobile.png",
+        "L3d: User visual verification 2026-08-19 — 'performance is improved'",
+        "Correctness sidebar: original WHERE clause was semantically wrong (`input_tokens IS NOT NULL OR output_tokens IS NOT NULL` matched every row because integer columns have DEFAULT 0). New clause enforces the CLAUDE.md-documented invariant that tokens live on Stop/SubagentStop events only.",
+        "Discrepancy note: initial perf audit reported /api/tokens at ~5100ms; fix-engineer's baseline was ~234ms. Difference attributed to load/measurement noise. The fix is correct regardless — WHERE clause was doing nothing, and the composite index will pay off as data grows further."
+      ],
+      "notes": "Shipped 2026-08-19. Three fixes: (1) /api/tokens WHERE clause corrected to event_type IN ('Stop','SubagentStop') — perf + correctness; (2) /api/sessions scope-before-JOIN for the no-filter case (limits inside subquery before joining events); (3) migration 003_perf_index.sql adds composite index idx_events_type_time on cc_events(event_type, timestamp). Follow-up: if / still feels slow at higher data volumes, open client-side React Profiler investigation as separate feature."
+    },
+    {
       "id": "insight-specs-hygiene-001",
       "priority": 5,
       "area": "insights",

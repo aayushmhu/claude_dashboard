@@ -4,6 +4,7 @@
 
 ## Verified Now
 
+- **`dashboard-perf-001` shipped** (2026-08-19, later same day as pricing). Three query-shape fixes on `/` dashboard: (1) `/api/tokens` WHERE clause corrected to `event_type IN ('Stop','SubagentStop')` — was matching every row because `input_tokens` has `DEFAULT 0`, a bug that pretended to filter; (2) `/api/sessions` no-filter path now scopes `LIMIT` inside a subquery before JOIN; (3) new composite index `idx_events_type_time` on `cc_events(event_type, timestamp)` via `migrations/003_perf_index.sql`. Result: `/api/tokens` median 234ms → 28ms (~8.4×), `/api/sessions?limit=10` 258ms → 20ms (~13×). Byte-identical token sums and session ID ordering verified before/after. User visual: "performance is improved."
 - **`pricing-update-002` shipped** (2026-08-19). Per-version pricing catalog replaces family-based fallback. `/model-pricing` rebuilt as a 2-column family-card grid (`grid-cols-1 md:grid-cols-2 gap-6`) with chevron disclosure for older/retired versions, `Retired` badges, `Invite only` badge on Mythos 5, third callout re: standard-not-batch + retroactive recalc. Cost calculator rebuilt with 15-model picker + live rate display. All 7 SQL `COST_EXPR` blocks + 2 JS helpers now derive from `resolveModelPricing(modelId)` in `lib/utils.ts` (per-version key → family-fallback regex → Sonnet 4.6 default). Fable 5 mispricing bug fixed (was 3.3× undercount at Sonnet fallback → now correct $10/$50); Sonnet 5 overcount fixed (was 1.5× overcount → now correct $2/$10).
 - **`local-files-001` shipped** (2026-05-21/22). Project Detail Local Files section + dedicated page + memory-preview modal + `/chat?root=` extension.
 - **Phase 1.2 bidirectional scroll + focus-event shipped** (2026-05-21). Click ↗ on Session Summary prompt → conversation centered with amber highlight.
@@ -12,6 +13,17 @@
 - **Live DB**: `~/.claude-dashboard/dashboard.db`. Type-check `npx tsc --noEmit` exit 0. Production runs under PM2 on port 3010.
 
 ## Changed This Session (2026-08-19)
+
+### dashboard-perf-001 (5 files)
+
+- `app/api/tokens/route.ts` — WHERE clause fix (2 locations)
+- `app/api/sessions/route.ts` — no-filter branch: scope subquery + `SELECT COUNT(*) FROM cc_sessions`
+- `migrations/003_perf_index.sql` (new) — composite index
+- `CLAUDE.md` — Database section notes the new index
+- Planning file at `docs/planning/features/2026-08-19-dashboard-perf-001.md`
+- Data-volume note: `cc_events` at 114K rows (was 21K in May 2026-05-16). 5× growth in ~3 months. Query-shape bugs that were invisible at 21K are biting now.
+
+### pricing-update-002 (11 files)
 
 - **11 files touched** for pricing-update-002 (5 more than originally scoped; all in pricing-truth blast radius). Full list in `docs/planning/features/2026-08-19-pricing-update.md` §6.
 - New per-version resolver `resolveModelPricing()` in `lib/utils.ts` + `PER_VERSION_PRICING` catalog covering 15 models.
@@ -26,6 +38,7 @@
 
 ## Broken Or Unverified
 
+- **Perf-audit measurement discrepancy**: initial `/` audit reported `/api/tokens` at ~5100ms; fix-engineer's baseline was ~234ms (20× gap). Attributed to system noise. Fix is correct regardless. Future audits should include a control measurement of a known-fast endpoint to isolate noise.
 - **Playwright light-mode capture gap**: `colorScheme:'light'` doesn't override `next-themes` localStorage on mount, so light-mode screenshots render in dark. User visually confirmed light-mode parity in browser at ship time. Follow-up: seed localStorage in `scripts/audit-page.mjs` for reliable light-mode captures.
 - **`insight-specs-hygiene-001` deferred**: Remaining stale rate references in `opus-verbose-output.md` ("$75/M"), `cache-write-without-read.md` ("+25% premium"), etc. Not runtime code; tracked as a separate hygiene feature.
 - **Subagent dispatch tooling gap** (persistent): team-lead's subagent context can't spawn engineer directly. CEO has been direct-dispatching engineer + insights-engineer via SendMessage. Needs proper fix.

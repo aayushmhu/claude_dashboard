@@ -8,9 +8,31 @@
 - **Entry point for any agent**: read [`AGENTS.md`](AGENTS.md) FIRST. Project overview + run commands + 15 hard constraints live there. `CLAUDE.md` is the architecture detail reference.
 - Current highest-priority unfinished feature: **`insight-specs-hygiene-001`** (refresh stale rates in `docs/product/insight-specs/*.md`) OR **`summary-003`** (render task-notification XML) OR feedback channel infrastructure. User picks.
 - Current blocker: none
-- Most recent shipped feature: **`pricing-update-002`** (per-version pricing catalog + resolver, 11 files, 15-model coverage, Fable 5 3.3× undercount fix + Sonnet 5 1.5× overcount fix) — landed 2026-08-19.
+- Most recent shipped feature: **`dashboard-perf-001`** (3 query-shape fixes: /api/tokens WHERE clause correctness, /api/sessions scope-before-JOIN, composite index idx_events_type_time — /api/tokens 8.4× faster, /api/sessions 13× faster) — landed 2026-08-19 after `pricing-update-002` earlier same session.
 
 ## Session Log
+
+### Session 2026-08-19 (dashboard-perf-001 — query-shape fixes on / dashboard page)
+
+- Date: 2026-08-19 (later in same day as pricing-update-002)
+- Goal: User reported "/ dashboard page feels too slow" and asked whether to switch DB engines. CEO decision: stay with SQLite, profile first, fix root cause.
+- Completed:
+  - Dispatched engineer for a targeted perf audit on `/` — investigation only, no code changes. Audit found `/api/tokens` at ~5100ms (3 sequential 114K-row scans due to broken WHERE clause), `/api/sessions?limit=10` at ~1690ms (aggregates all sessions before LIMIT). Everything else fine. Data volume 114K events (5× growth since May's 21K).
+  - Created planning file `docs/planning/features/2026-08-19-dashboard-perf-001.md` with TC-DP-01..10.
+  - Dispatched team-lead → engineer for three fixes: (1) `app/api/tokens/route.ts` WHERE clause replaced `(input_tokens IS NOT NULL OR output_tokens IS NOT NULL)` with `event_type IN ('Stop','SubagentStop')` — fixes both perf AND a semantic bug (integer columns default to 0, so the old filter matched every row); (2) `app/api/sessions/route.ts` no-filter branch scopes `LIMIT` inside subquery before JOIN; (3) migration `003_perf_index.sql` adds composite index `idx_events_type_time on cc_events(event_type, timestamp)`.
+  - Correctness gate: token sums + session IDs byte-identical before/after (small drift on live sums from concurrent hook writes — expected).
+  - EXPLAIN QUERY PLAN AFTER: tokens now `SEARCH cc_events USING INDEX idx_events_type_time`; sessions now `CO-ROUTINE s → SCAN cc_sessions ... SEARCH e USING INDEX idx_events_session`.
+  - Timing AFTER: `/api/tokens` median 234ms → 28ms (~8.4×); `/api/sessions?limit=10` median 258ms → 20ms (~13×).
+  - Playwright screenshots captured at `/private/tmp/perf-audit/`.
+  - User visual verification: "performance is improved."
+- Verification: L1 exit 0, L2 6/6 HTTP 200 + correctness gate, L3 timings + EXPLAIN + screenshots + user visual
+- Evidence captured: planning file §5 execution log + §7 post-deploy; `feature_list.json` evidence array
+- Commits: pending at time of writing (dashboard-perf-001 as third commit of the session, will bundle 5 modified/new files + planning file)
+- Files or artifacts updated: `app/api/tokens/route.ts`, `app/api/sessions/route.ts`, `migrations/003_perf_index.sql` (new), `CLAUDE.md` (Database section notes new index), `feature_list.json`, planning file, this file, session-handoff.md
+- Known risk or unresolved issue:
+  - Measurement discrepancy between initial audit (5100ms) and fix baseline (234ms) — attributed to system noise. The fix is correct regardless.
+  - If / still feels slow at higher data volumes, next investigation is client-side React Profiler (server wall time is now well under 100ms per endpoint)
+- Next best step: `insight-specs-hygiene-001` (small hygiene) OR `summary-003` (task-notification XML rendering) OR feedback-channel infrastructure.
 
 ### Session 2026-08-19 (pricing-update-002 — per-version pricing catalog + 2-col grid)
 
