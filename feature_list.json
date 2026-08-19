@@ -1,6 +1,6 @@
 {
   "project": "claude-code-dashboard",
-  "last_updated": "2026-05-21T11:00",
+  "last_updated": "2026-08-19T00:00",
   "rules": {
     "single_active_feature": true,
     "passing_requires_evidence": true,
@@ -13,6 +13,35 @@
     "passing": "Required verification has passed and evidence is recorded."
   },
   "features": [
+    {
+      "id": "pricing-update-002",
+      "priority": 1,
+      "area": "pricing-catalog",
+      "title": "Per-version pricing catalog + model coverage update",
+      "user_visible_behavior": "All new Claude model tiers (Fable 5, Mythos 5, Opus 5/4.8/4.7/4.6/4.5, Sonnet 5/4.6/4.5, Haiku 4.5) appear on /model-pricing with correct rates. Retired models (Opus 4.1/4, Sonnet 4, Haiku 3.5) display historical rates with 'Retired' badge inside their family card behind a chevron toggle. Cost calculations across all dashboard pages use per-version resolver instead of family-based fallback — fixing active mispricing of claude-fable-5 sessions (was billed at $3/$15, now correctly $10/$50) and claude-sonnet-5 sessions (was $3/$15, now correctly $2/$10). 2-column card grid at md+ breakpoint.",
+      "status": "passing",
+      "verification": [
+        "TC-PU-01..08: resolveModelPricing() correctness across per-version keys, normalized suffixes ([1m], -YYYYMMDD date pin), retired models, unknown-model fallback, null input",
+        "TC-PU-09: Fable 5 SQL cost ratio ≈ 3.33× (fixed 3.3× undercount)",
+        "TC-PU-10: Sonnet 5 SQL cost ratio ≈ 0.67× (fixed 1.5× overcount)",
+        "TC-PU-11..13: /api/tokens, /api/stats, /api/insights HTTP 200",
+        "TC-PU-14..16: /model-pricing displays all 15 tiers + Retired badges + Invite-only Mythos 5",
+        "TC-PU-17: npx tsc --noEmit exit 0",
+        "TC-PU-18: dark + light mode parity (light verified by code inspection + user visual)"
+      ],
+      "evidence": [
+        "docs/planning/features/2026-08-19-pricing-update.md (status: shipped; §5 execution log + §6 files touched + §7 post-deploy)",
+        "L1: npx tsc --noEmit exit 0 (engineer verified after each iteration)",
+        "L2: 6/6 endpoints HTTP 200 — stats, tokens, tokens/timeline, insights, export, summary",
+        "L3a: SQL dry-run confirmed Fable 5 OLD $482.25 → NEW $1,607.49 (3.333× ratio); Sonnet 5 OLD $1,403.60 → NEW $935.73 (0.667× ratio); all 9 live-DB model IDs compute without SQL error",
+        "L3b: 5 Playwright screenshots at pricing-audit/ — v2-dark/desktop.png, v2-dark/mobile.png, v2-light/desktop.png (rendered dark per next-themes localStorage), v2-light/mobile.png, calc/fable5-selected.png ($15.00 with Fable 5 rates)",
+        "Light-mode Playwright gap: colorScheme:'light' cannot override next-themes on mount. Parity confirmed via CSS variable inspection + user visual verification at ship time.",
+        "Insights-engineer audit appended to docs/testing/_AUDIT_2026-05-16.md — all 15 rules still fire correctly under new pricing. 30-day total: $6,018.31 → $6,675.68 (+10.9%, dominated by Fable 5 3.3× correction).",
+        "Spec deviations: 2 additional COST_EXPR blocks discovered beyond original §2.6 (projects/detail, sessions/[id]/summary); +1 JS costOf() helper in summary route; +1 COST_EXPR_EXPORT block in export route; +1 new family-card.tsx component for Server Component compatibility; +1 corrected stale $15/$75 in opus-trivial-tools.md",
+        "30-day cost impact: +10.9% total ($6,018 → $6,676). Fable 5 spend tripled ($482 → $1,607) as intended (undercount fix). Sonnet 5 down 33% ($1,404 → $936) as intended (overcount fix). All other model families unchanged."
+      ],
+      "notes": "Shipped 2026-08-19. 11 files touched (5 more than originally scoped — all within pricing-truth blast radius, all documented as spec deviations in planning §5). Two iterations on /model-pricing layout (Option B grouped-by-family, then 2-col grid). Follow-up feature insight-specs-hygiene-001 tracks remaining stale rate references in other spec docs."
+    },
     {
       "id": "summary-001",
       "priority": 1,
@@ -63,6 +92,22 @@
         "Spec deviation: SQL UNION outer wrapper changed from SELECT ${EVENT_SELECT} to SELECT * (SQLite limitation with json_extract); documented in planning file §5"
       ],
       "notes": "Phase 1.2 shipped 2026-05-21 with one post-deploy fix (snap-back bug) resolved same day. Adds after_id + focus_id params to /api/sessions/[id]/events. Bidirectional scroll handler in conversations client. Session Summary ↗ link now navigates with ?focus= instead of #event-."
+    },
+    {
+      "id": "insight-specs-hygiene-001",
+      "priority": 5,
+      "area": "insights",
+      "title": "Refresh stale rate references in insight spec docs",
+      "user_visible_behavior": "docs/product/insight-specs/*.md files show current pricing (not historical) in their edge-case + example sections. Purely developer-facing hygiene.",
+      "status": "not_started",
+      "verification": [
+        "Grep docs/product/insight-specs/ for '$75/M', '$15/$75', '$18.75', '+25% premium' and similar stale rate references",
+        "Cross-check against PER_VERSION_PRICING in lib/utils.ts as canonical source",
+        "Correct each stale reference to match the current per-version rate",
+        "Have insights-engineer sign off that no spec doc misrepresents live rates"
+      ],
+      "evidence": [],
+      "notes": "Surfaced by insights-engineer's 2026-08-19 post-pricing-update audit. Non-blocking hygiene — rules themselves fire correctly at new rates; only the human-readable spec docs carry stale example numbers. Excluded from pricing-update-002 to keep PR focused."
     },
     {
       "id": "summary-003",
@@ -139,8 +184,7 @@
       "area": "insights",
       "title": "Rule library audit — verify all 15 rules fire correctly",
       "user_visible_behavior": "Each of the 15 insight rules in app/api/insights/route.ts produces correct output (or correctly stays silent) when dry-run against the live DB.",
-      "status": "not_started",
-      "blocked_reason_resolved": "Was blocked behind summary-002 (Phase 1.2 bidirectional scroll). summary-002 shipped 2026-05-21; this becomes the next-highest-priority unfinished feature.",
+      "status": "passing",
       "verification": [
         "For each rule, run the SQL against ~/.claude-dashboard/dashboard.db",
         "Confirm the rule fires on the expected sessions",
@@ -149,9 +193,11 @@
         "Record per-rule verdict in docs/testing/_AUDIT_2026-05-16.md"
       ],
       "evidence": [
-        "docs/testing/_AUDIT_2026-05-16.md (initial audit covering 11/15 rules; verdicts: all OK except opus-verbose-output spec doc needs price update)"
+        "docs/testing/_AUDIT_2026-05-16.md — full audit covers all 15/15 rules with per-rule verdicts. Verdict: all 15 rules execute correctly; SQL is sound; 5 rules fire on current live data, 10 are correctly silent given data patterns.",
+        "2026-05-25 re-verification by team-lead: re-ran opus-trivial-tools and opus-on-research-tasks against live DB. Both queries return real rows (turn_count=2 / session_count=2). The 'broken rules' hypothesis carried in memory was a false alarm — both rules join model from Stop/SubagentStop correctly. PostToolUse model NULL across 21,029 rows confirmed as a logger limitation that does not affect any of the 15 rules.",
+        "Outstanding non-blocking issue: 2 spec docs have stale Opus pricing (opus-verbose-output.md says $75/M, opus-trivial-tools.md says $15/$75/$18.75/$1.50). Code is correct; spec docs need refresh — tracked as a separate hygiene task, not a rule correctness gate."
       ],
-      "notes": "4 rules still need dry-runs. Owner: insights-engineer."
+      "notes": "Closed 2026-05-25. Insights library is in a verified-good state. Future rule additions must follow the same dry-run-before-shipping discipline per .claude/agents/insights-engineer.md."
     }
   ]
 }

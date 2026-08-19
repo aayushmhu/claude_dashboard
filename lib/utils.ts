@@ -111,20 +111,67 @@ export interface ModelPricing {
   cache_read: number;
 }
 
+// Per-version pricing lookup. Keyed by normalized model ID (lowercase, no [1m] suffix, no date pin).
+// Source: Anthropic standard API pricing, fetched 2026-08-19.
+export const PER_VERSION_PRICING: Record<string, ModelPricing> = {
+  'claude-fable-5':    { input: 10, output: 50, cache_write: 20, cache_read: 1.00 },
+  'claude-mythos-5':   { input: 10, output: 50, cache_write: 20, cache_read: 1.00 },
+  'claude-opus-5':     { input: 5,  output: 25, cache_write: 10, cache_read: 0.50 },
+  'claude-opus-4-8':   { input: 5,  output: 25, cache_write: 10, cache_read: 0.50 },
+  'claude-opus-4-7':   { input: 5,  output: 25, cache_write: 10, cache_read: 0.50 },
+  'claude-opus-4-6':   { input: 5,  output: 25, cache_write: 10, cache_read: 0.50 },
+  'claude-opus-4-5':   { input: 5,  output: 25, cache_write: 10, cache_read: 0.50 },
+  'claude-opus-4-1':   { input: 15, output: 75, cache_write: 30, cache_read: 1.50 },
+  'claude-opus-4':     { input: 15, output: 75, cache_write: 30, cache_read: 1.50 },
+  'claude-sonnet-5':   { input: 2,  output: 10, cache_write: 4,  cache_read: 0.20 },
+  'claude-sonnet-4-6': { input: 3,  output: 15, cache_write: 6,  cache_read: 0.30 },
+  'claude-sonnet-4-5': { input: 3,  output: 15, cache_write: 6,  cache_read: 0.30 },
+  'claude-sonnet-4':   { input: 3,  output: 15, cache_write: 6,  cache_read: 0.30 },
+  'claude-haiku-4-5':  { input: 1,  output: 5,  cache_write: 2,  cache_read: 0.10 },
+  'claude-haiku-3-5':  { input: 0.80, output: 4, cache_write: 1.60, cache_read: 0.08 },
+};
+
+// Family fallback for unknown future model versions
+const FAMILY_FALLBACK: Array<[RegExp, ModelPricing]> = [
+  [/fable|mythos/, { input: 10, output: 50, cache_write: 20, cache_read: 1.00 }],
+  [/opus/,         { input: 5,  output: 25, cache_write: 10, cache_read: 0.50 }],
+  [/haiku/,        { input: 1,  output: 5,  cache_write: 2,  cache_read: 0.10 }],
+  [/sonnet/,       { input: 3,  output: 15, cache_write: 6,  cache_read: 0.30 }],
+];
+
+const DEFAULT_PRICING: ModelPricing = { input: 3, output: 15, cache_write: 6, cache_read: 0.30 };
+
+function normalizeModelId(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/\[.*?\]$/, '')       // strip [1m] and any future bracket suffixes
+    .replace(/-\d{8}$/, '')        // strip date pin like -20251001
+    .trim();
+}
+
+export function resolveModelPricing(model: string | null | undefined): ModelPricing {
+  if (!model) return DEFAULT_PRICING;
+  const key = normalizeModelId(model);
+  if (PER_VERSION_PRICING[key]) return PER_VERSION_PRICING[key];
+  for (const [re, pricing] of FAMILY_FALLBACK) {
+    if (re.test(key)) return pricing;
+  }
+  return DEFAULT_PRICING;
+}
+
 // Pricing per million tokens, keyed by model family.
 // All rates from Anthropic's published pricing page. cache_write is the 1h rate.
 export const MODEL_PRICING: Record<string, ModelPricing> = {
-  opus:   { input: 5, output: 25, cache_write: 10, cache_read: 0.50 },
-  sonnet: { input: 3, output: 15, cache_write: 6,  cache_read: 0.30 },
-  haiku:  { input: 1, output: 5,  cache_write: 2,  cache_read: 0.10 },
+  fable:  { input: 10, output: 50, cache_write: 20, cache_read: 1.00 },
+  mythos: { input: 10, output: 50, cache_write: 20, cache_read: 1.00 },
+  opus:   { input: 5,  output: 25, cache_write: 10, cache_read: 0.50 },
+  sonnet: { input: 3,  output: 15, cache_write: 6,  cache_read: 0.30 },
+  haiku:  { input: 1,  output: 5,  cache_write: 2,  cache_read: 0.10 },
 };
 
+/** @deprecated Use resolveModelPricing() instead. Preserved for legacy callers. */
 export function getModelPricing(model: string | null | undefined): ModelPricing {
-  if (!model) return MODEL_PRICING.sonnet;
-  const m = model.toLowerCase();
-  if (m.includes('opus'))  return MODEL_PRICING.opus;
-  if (m.includes('haiku')) return MODEL_PRICING.haiku;
-  return MODEL_PRICING.sonnet;
+  return resolveModelPricing(model);
 }
 
 // `model` is REQUIRED to prevent silent Sonnet-fallback pricing on Opus/Haiku data.
@@ -136,7 +183,7 @@ export function calcCost(
   cacheRead: number,
   model: string | null | undefined
 ): number {
-  const p = getModelPricing(model);
+  const p = resolveModelPricing(model);
   return (
     input     * p.input       / 1_000_000 +
     output    * p.output      / 1_000_000 +
@@ -146,7 +193,7 @@ export function calcCost(
 }
 
 export function calcCacheSavings(cacheRead: number, model: string | null | undefined): number {
-  const p = getModelPricing(model);
+  const p = resolveModelPricing(model);
   return cacheRead * (p.input - p.cache_read) / 1_000_000;
 }
 
@@ -158,7 +205,7 @@ export function formatCacheAnnotation(
   model: string | null | undefined,
 ): string | null {
   if (!cacheReadTokens || cacheReadTokens <= 0) return null;
-  const p = getModelPricing(model);
+  const p = resolveModelPricing(model);
   const cacheReadCost = cacheReadTokens * p.cache_read / 1_000_000;
   const wouldHavePaid = cacheReadTokens * p.input / 1_000_000;
   const saved = wouldHavePaid - cacheReadCost;

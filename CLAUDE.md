@@ -82,17 +82,11 @@ Note: the unit string must be quoted in SQLite (it's passed as a UDF argument, n
 
 **JSON columns**: SQLite stores JSON as TEXT. All route handlers that read `tool_input`/`tool_output` must call `parseJson()` to convert from string to object. MySQL auto-parsed these; SQLite does not.
 
-**Token cost formula**: per-model (not a single rate). Implemented in `lib/utils.ts` via `calcCost(input, output, cacheWrite, cacheRead, model)` which picks the right rate:
+**Token cost formula**: per-**version** (not per-family). Implemented in `lib/utils.ts` via `resolveModelPricing(modelId)` — full versioned model IDs like `claude-sonnet-5` resolve to specific rate rows via `PER_VERSION_PRICING`; unknown IDs fall through `FAMILY_FALLBACK` regex → `DEFAULT_PRICING` (Sonnet 4.6). `calcCost(input, output, cacheWrite, cacheRead, model)` wraps this. Model IDs with `[1m]` context or `-YYYYMMDD` date-pin suffixes are normalized before lookup. Full rate table lives in `PER_VERSION_PRICING` and is displayed on `/model-pricing`.
 
-| Model | Input $/M | Output $/M | Cache write $/M | Cache read $/M |
-|---|---|---|---|---|
-| Opus  | 5  | 25 | 10 | 0.50 |
-| Sonnet (default) | 3  | 15 | 6  | 0.30 |
-| Haiku | 1  | 5  | 2  | 0.10 |
+In SQL, use the 7-branch `COST_EXPR` `CASE` pattern (see `app/api/projects/detail/route.ts` for the canonical form). Model is only populated on `Stop`/`SubagentStop` events — never on `PostToolUse`.
 
-In SQL, use the per-model `COST_EXPR` `CASE` pattern (see `app/api/projects/detail/route.ts` for the canonical form). Model is only populated on `Stop`/`SubagentStop` events — never on `PostToolUse`.
-
-**Pricing constants live in two places** that must stay in sync: `MODEL_PRICING` in `lib/utils.ts` (TypeScript) and the `COST_EXPR` `CASE` block (SQL) repeated across API routes. Changing rates requires touching both.
+**Pricing constants live in 7 SQL locations + `lib/utils.ts`** that must stay in sync: `PER_VERSION_PRICING` in `lib/utils.ts` (TypeScript) and the 7-branch `COST_EXPR` `CASE` block repeated across API routes (`stats`, `tokens`, `tokens/timeline`, `insights`, `sessions/[id]/export`, `sessions/[id]/summary`, `projects/detail`). Also two JS helpers (`getRates` in export, `costOf` in summary) call `resolveModelPricing()`. Changing rates requires touching all of these.
 
 **Conversations view** (`/conversations`):
 - Path-based routing: `/conversations/[id]` — session ID in path, not query param

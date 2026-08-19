@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { RowDataPacket } from '@/lib/db';
+import { resolveModelPricing } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -59,12 +60,21 @@ export interface SessionSummaryResponse {
 // ─── Cost SQL fragment (per-row, used in multiple slices) ─────────────────────
 
 const COST_EXPR = `
-  CASE WHEN model LIKE '%opus%' THEN
-    (input_tokens * 5.0 + output_tokens * 25.0 + cache_creation_tokens * 10.0 + cache_read_tokens * 0.50) / 1000000.0
-  WHEN model LIKE '%haiku%' THEN
-    (input_tokens * 1.0 + output_tokens * 5.0 + cache_creation_tokens * 2.0 + cache_read_tokens * 0.10) / 1000000.0
-  ELSE
-    (input_tokens * 3.0 + output_tokens * 15.0 + cache_creation_tokens * 6.0 + cache_read_tokens * 0.30) / 1000000.0
+  CASE
+    WHEN model LIKE '%fable%' OR model LIKE '%mythos%' THEN
+      (COALESCE(input_tokens,0) * 10.0 + COALESCE(output_tokens,0) * 50.0 + COALESCE(cache_creation_tokens,0) * 20.0 + COALESCE(cache_read_tokens,0) * 1.00) / 1000000.0
+    WHEN model LIKE '%opus-4-1%' THEN
+      (COALESCE(input_tokens,0) * 15.0 + COALESCE(output_tokens,0) * 75.0 + COALESCE(cache_creation_tokens,0) * 30.0 + COALESCE(cache_read_tokens,0) * 1.50) / 1000000.0
+    WHEN model LIKE '%haiku-3-5%' OR model LIKE '%haiku-3.5%' THEN
+      (COALESCE(input_tokens,0) * 0.80 + COALESCE(output_tokens,0) * 4.0 + COALESCE(cache_creation_tokens,0) * 1.60 + COALESCE(cache_read_tokens,0) * 0.08) / 1000000.0
+    WHEN model LIKE '%sonnet-5%' THEN
+      (COALESCE(input_tokens,0) * 2.0 + COALESCE(output_tokens,0) * 10.0 + COALESCE(cache_creation_tokens,0) * 4.0 + COALESCE(cache_read_tokens,0) * 0.20) / 1000000.0
+    WHEN model LIKE '%opus%' THEN
+      (COALESCE(input_tokens,0) * 5.0 + COALESCE(output_tokens,0) * 25.0 + COALESCE(cache_creation_tokens,0) * 10.0 + COALESCE(cache_read_tokens,0) * 0.50) / 1000000.0
+    WHEN model LIKE '%haiku%' THEN
+      (COALESCE(input_tokens,0) * 1.0 + COALESCE(output_tokens,0) * 5.0 + COALESCE(cache_creation_tokens,0) * 2.0 + COALESCE(cache_read_tokens,0) * 0.10) / 1000000.0
+    ELSE
+      (COALESCE(input_tokens,0) * 3.0 + COALESCE(output_tokens,0) * 15.0 + COALESCE(cache_creation_tokens,0) * 6.0 + COALESCE(cache_read_tokens,0) * 0.30) / 1000000.0
   END
 `;
 
@@ -213,14 +223,12 @@ export async function GET(
     );
 
     function costOf(r: RowDataPacket): number {
-      const m = String(r.model ?? '').toLowerCase();
+      const p = resolveModelPricing(r.model as string | null | undefined);
       const input = Number(r.input_tokens ?? 0);
       const output = Number(r.output_tokens ?? 0);
       const cw = Number(r.cache_creation_tokens ?? 0);
       const cr = Number(r.cache_read_tokens ?? 0);
-      if (m.includes('opus'))  return (input*5 + output*25 + cw*10 + cr*0.5) / 1_000_000;
-      if (m.includes('haiku')) return (input*1 + output*5 + cw*2  + cr*0.1) / 1_000_000;
-      return                          (input*3 + output*15 + cw*6  + cr*0.3) / 1_000_000;
+      return (input * p.input + output * p.output + cw * p.cache_write + cr * p.cache_read) / 1_000_000;
     }
 
     function stripMarkdown(raw: string): string {

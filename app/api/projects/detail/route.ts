@@ -4,12 +4,21 @@ import { RowDataPacket } from '@/lib/db';
 
 // Qualified e.model — cc_sessions also has a model column, JOIN would be ambiguous otherwise.
 const COST_EXPR = `
-  CASE WHEN e.model LIKE '%opus%' THEN
-    (e.input_tokens * 5.0 + e.output_tokens * 25.0 + e.cache_creation_tokens * 10.0 + e.cache_read_tokens * 0.50) / 1000000.0
-  WHEN e.model LIKE '%haiku%' THEN
-    (e.input_tokens * 1.0 + e.output_tokens * 5.0 + e.cache_creation_tokens * 2.0 + e.cache_read_tokens * 0.10) / 1000000.0
-  ELSE
-    (e.input_tokens * 3.0 + e.output_tokens * 15.0 + e.cache_creation_tokens * 6.0 + e.cache_read_tokens * 0.30) / 1000000.0
+  CASE
+    WHEN e.model LIKE '%fable%' OR e.model LIKE '%mythos%' THEN
+      (COALESCE(e.input_tokens,0) * 10.0 + COALESCE(e.output_tokens,0) * 50.0 + COALESCE(e.cache_creation_tokens,0) * 20.0 + COALESCE(e.cache_read_tokens,0) * 1.00) / 1000000.0
+    WHEN e.model LIKE '%opus-4-1%' THEN
+      (COALESCE(e.input_tokens,0) * 15.0 + COALESCE(e.output_tokens,0) * 75.0 + COALESCE(e.cache_creation_tokens,0) * 30.0 + COALESCE(e.cache_read_tokens,0) * 1.50) / 1000000.0
+    WHEN e.model LIKE '%haiku-3-5%' OR e.model LIKE '%haiku-3.5%' THEN
+      (COALESCE(e.input_tokens,0) * 0.80 + COALESCE(e.output_tokens,0) * 4.0 + COALESCE(e.cache_creation_tokens,0) * 1.60 + COALESCE(e.cache_read_tokens,0) * 0.08) / 1000000.0
+    WHEN e.model LIKE '%sonnet-5%' THEN
+      (COALESCE(e.input_tokens,0) * 2.0 + COALESCE(e.output_tokens,0) * 10.0 + COALESCE(e.cache_creation_tokens,0) * 4.0 + COALESCE(e.cache_read_tokens,0) * 0.20) / 1000000.0
+    WHEN e.model LIKE '%opus%' THEN
+      (COALESCE(e.input_tokens,0) * 5.0 + COALESCE(e.output_tokens,0) * 25.0 + COALESCE(e.cache_creation_tokens,0) * 10.0 + COALESCE(e.cache_read_tokens,0) * 0.50) / 1000000.0
+    WHEN e.model LIKE '%haiku%' THEN
+      (COALESCE(e.input_tokens,0) * 1.0 + COALESCE(e.output_tokens,0) * 5.0 + COALESCE(e.cache_creation_tokens,0) * 2.0 + COALESCE(e.cache_read_tokens,0) * 0.10) / 1000000.0
+    ELSE
+      (COALESCE(e.input_tokens,0) * 3.0 + COALESCE(e.output_tokens,0) * 15.0 + COALESCE(e.cache_creation_tokens,0) * 6.0 + COALESCE(e.cache_read_tokens,0) * 0.30) / 1000000.0
   END
 `;
 

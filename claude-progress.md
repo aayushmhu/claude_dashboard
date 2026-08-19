@@ -3,14 +3,38 @@
 ## Current Verified State
 
 - Repository root: `~/projects/dashboard_claude_code_events` (GitHub remote: `aayushmhu/claude_dashboard`)
-- Standard startup path: `npm install && npm run init && PORT=3010 npm run dev` (default port is 3000; 3010 is local convention)
+- Standard startup path: `npm install && npm run init && PORT=3010 npm run dev` (default port is 3000; 3010 is local convention). **PM2 runs the dashboard on 3010 in this environment** — check `pm2 list` before starting a second dev server.
 - Standard verification path: `npx tsc --noEmit` (L1 type-check, exit 0 — covers server + client); visual via `node scripts/audit-page.mjs <url> <out-dir>` (Playwright L3)
 - **Entry point for any agent**: read [`AGENTS.md`](AGENTS.md) FIRST. Project overview + run commands + 15 hard constraints live there. `CLAUDE.md` is the architecture detail reference.
-- Current highest-priority unfinished feature: **summary-003** (render task-notification XML as readable rows) OR **rules-audit-001** (4 of 15 rules remaining in dry-run audit). User picks priority.
+- Current highest-priority unfinished feature: **`insight-specs-hygiene-001`** (refresh stale rates in `docs/product/insight-specs/*.md`) OR **`summary-003`** (render task-notification XML) OR feedback channel infrastructure. User picks.
 - Current blocker: none
-- Most recent shipped feature: **local-files-001** (surface local Claude Code files on Project Detail — inline section + dedicated `/projects/detail/local` page + memory-preview modal + `/chat?root=` extension + 9 polish iterations) — landed 2026-05-21 / 2026-05-22.
+- Most recent shipped feature: **`pricing-update-002`** (per-version pricing catalog + resolver, 11 files, 15-model coverage, Fable 5 3.3× undercount fix + Sonnet 5 1.5× overcount fix) — landed 2026-08-19.
 
 ## Session Log
+
+### Session 2026-08-19 (pricing-update-002 — per-version pricing catalog + 2-col grid)
+
+- Date: 2026-08-19
+- Goal: Update Anthropic pricing to current live tiers (Fable/Mythos 5, Opus 4.5–5, Sonnet 5, Haiku 4.5) + fix Fable 5 mispricing bug + rebuild `/model-pricing` for the expanded catalog.
+- Completed:
+  - Created planning file `docs/planning/features/2026-08-19-pricing-update.md` with 18 test cases (TC-PU-01..18) + full 15-model rate table fetched from platform.claude.com/docs/en/about-claude/pricing.
+  - Dispatched pm (D2 copy: `Retired` + `Invite only` badges, display names, third callout) and ui-ux (D1 layout: Option B grouped-by-family with chevron disclosure). Both signed off.
+  - User requested 2-column card grid mid-implementation. Dispatched ui-ux iteration 2/2 for a quick grid spec: `grid-cols-1 md:grid-cols-2 gap-6` + `max-h-72 overflow-y-auto scrollbar-thin` on versions list. Signed off.
+  - CEO sweep discovered **2 extra COST_EXPR blocks** beyond the memory-file's "6 hardcoded locations" tally: `app/api/projects/detail/route.ts` and `app/api/sessions/[id]/summary/route.ts`. Also 2 JS helpers (`getRates` in export/route.ts, `costOf` in summary/route.ts) with old family-based rates. All flagged; engineer covered all.
+  - Engineer shipped 11 files: `lib/utils.ts` (`resolveModelPricing()` + `PER_VERSION_PRICING` + `normalizeModelId` for `[1m]` / date-pin suffixes; `getModelPricing` kept as deprecated alias), 7 SQL COST_EXPR routes updated to 7-branch, 2 JS helpers migrated to resolver, `/model-pricing` page rebuilt with new `family-card.tsx` component + 2-col grid, calculator rebuilt with 15-model picker. Rules 2/8/10 hardcoded Sonnet-default saving math replaced with resolver call. `docs/product/insight-specs/opus-trivial-tools.md` stale $15/$75 corrected to $5/$25 (on-scope).
+  - Insights-engineer re-dry-ran cost-sensitive rules against live DB at new rates. All 15 rules still fire correctly; verdict appended to `docs/testing/_AUDIT_2026-05-16.md`. 30-day cost total shifts $6,018.31 → $6,675.68 (+10.9%). Fable 5 spend tripled ($482 → $1,607); Sonnet 5 down 33% ($1,404 → $936); all other model families unchanged.
+  - Verification: L1 `npx tsc --noEmit` exit 0. L2 6/6 endpoints HTTP 200 (stats, tokens, tokens/timeline, insights, export, summary). L3a SQL dry-run confirmed Fable 5 3.333× ratio + Sonnet 5 0.667× ratio (both match expected). L3b 5 Playwright screenshots captured.
+  - Known L3b gap: Playwright `colorScheme:'light'` doesn't override `next-themes` localStorage. Light-mode screenshots rendered in dark. Light-mode CSS token parity verified by code inspection + user visual confirmation at ship time.
+  - User visual verification: passed. Approved commit + push.
+- Verification: `npx tsc --noEmit` exit 0 across iterations; 5 Playwright screenshots + SQL dry-run outputs captured
+- Evidence captured: planning file §5–§7; `feature_list.json` evidence array for `pricing-update-002`
+- Commits: pending at time of writing (pricing-update-002 commit + separate native-planning-docs commit)
+- Files or artifacts updated: 11 code/spec files + planning file + feature_list.json + claude-progress.md (this file) + session-handoff.md + CLAUDE.md pricing section (trimmed table → pointer) + memory `project_pricing.md`
+- Known risk or unresolved issue:
+  - Playwright light-mode capture gap — follow-up: seed localStorage in `scripts/audit-page.mjs`
+  - `insight-specs-hygiene-001` deferred — stale rate references remain in other spec docs
+  - Subagent dispatch tooling gap persists — CEO continues to direct-dispatch specialist agents via SendMessage
+- Next best step: `insight-specs-hygiene-001` (quick hygiene) OR `summary-003` OR feedback-channel infrastructure (higher leverage, needs scoping).
 
 ### Session 2026-05-22 (local-files-001 polish iterations 6–9 + ship)
 

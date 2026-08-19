@@ -10,7 +10,7 @@ Opus **turns** (Stop or SubagentStop events with `model LIKE '%opus%'`) in the l
 
 ## Edge cases addressed
 - **Sonnet default / mid-session switches:** Counting turns (not sessions) means a 90%-Sonnet session that briefly used Opus produces 1 unit of evidence, not a falsely-attributed "Opus session."
-- **Per-model pricing:** Cost calc uses Opus rates ($15/$75/$18.75/$1.50 per M) for actual_cost, Haiku rates for the alternative. No mixing.
+- **Per-model pricing:** Cost calc uses Opus rates ($5/$25/$10/$0.50 per M) for actual_cost, Haiku rates for the alternative. No mixing.
 - **`agent` column:** Not used in this rule — main vs subagent doesn't matter for the cost claim.
 - **Time window:** Last 30 days, matching Rule 2 and Rule 3.
 - **Tool whitelist:** Bash, Read, Glob, LS, Grep, WebSearch, WebFetch. Excludes Edit, Write, Task, NotebookEdit and anything else needing reasoning.

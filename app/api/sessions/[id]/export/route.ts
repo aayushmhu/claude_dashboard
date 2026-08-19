@@ -13,10 +13,31 @@ function esc(s: unknown): string {
 }
 
 function getRates(model: string | null | undefined) {
-  const m = (model || '').toLowerCase();
-  if (m.includes('opus'))  return { input: 5, output: 25, cw: 10, cr: 0.50 };
-  if (m.includes('haiku')) return { input: 1, output: 5,  cw: 2,  cr: 0.10 };
-  return                          { input: 3, output: 15, cw: 6,  cr: 0.30 };
+  const m = (model || '').toLowerCase()
+    .replace(/\[.*?\]$/, '')
+    .replace(/-\d{8}$/, '');
+  const PV: Record<string, { input: number; output: number; cw: number; cr: number }> = {
+    'claude-fable-5':    { input: 10, output: 50, cw: 20,  cr: 1.00 },
+    'claude-mythos-5':   { input: 10, output: 50, cw: 20,  cr: 1.00 },
+    'claude-opus-5':     { input: 5,  output: 25, cw: 10,  cr: 0.50 },
+    'claude-opus-4-8':   { input: 5,  output: 25, cw: 10,  cr: 0.50 },
+    'claude-opus-4-7':   { input: 5,  output: 25, cw: 10,  cr: 0.50 },
+    'claude-opus-4-6':   { input: 5,  output: 25, cw: 10,  cr: 0.50 },
+    'claude-opus-4-5':   { input: 5,  output: 25, cw: 10,  cr: 0.50 },
+    'claude-opus-4-1':   { input: 15, output: 75, cw: 30,  cr: 1.50 },
+    'claude-opus-4':     { input: 15, output: 75, cw: 30,  cr: 1.50 },
+    'claude-sonnet-5':   { input: 2,  output: 10, cw: 4,   cr: 0.20 },
+    'claude-sonnet-4-6': { input: 3,  output: 15, cw: 6,   cr: 0.30 },
+    'claude-sonnet-4-5': { input: 3,  output: 15, cw: 6,   cr: 0.30 },
+    'claude-sonnet-4':   { input: 3,  output: 15, cw: 6,   cr: 0.30 },
+    'claude-haiku-4-5':  { input: 1,  output: 5,  cw: 2,   cr: 0.10 },
+    'claude-haiku-3-5':  { input: 0.80, output: 4, cw: 1.60, cr: 0.08 },
+  };
+  if (PV[m]) return PV[m];
+  if (/fable|mythos/.test(m)) return { input: 10, output: 50, cw: 20, cr: 1.00 };
+  if (/opus/.test(m))         return { input: 5,  output: 25, cw: 10, cr: 0.50 };
+  if (/haiku/.test(m))        return { input: 1,  output: 5,  cw: 2,  cr: 0.10 };
+  return                             { input: 3,  output: 15, cw: 6,  cr: 0.30 };
 }
 function calcCost(input: number, output: number, cacheWrite: number, cacheRead: number, model: string | null | undefined): number {
   const r = getRates(model);
@@ -315,12 +336,21 @@ function renderHTML(session: RowDataPacket, events: RowDataPacket[]): string {
 // ── Summary export HTML ───────────────────────────────────────────────────────
 
 const COST_EXPR_EXPORT = `
-  CASE WHEN model LIKE '%opus%' THEN
-    (input_tokens * 5.0 + output_tokens * 25.0 + cache_creation_tokens * 10.0 + cache_read_tokens * 0.50) / 1000000.0
-  WHEN model LIKE '%haiku%' THEN
-    (input_tokens * 1.0 + output_tokens * 5.0 + cache_creation_tokens * 2.0 + cache_read_tokens * 0.10) / 1000000.0
-  ELSE
-    (input_tokens * 3.0 + output_tokens * 15.0 + cache_creation_tokens * 6.0 + cache_read_tokens * 0.30) / 1000000.0
+  CASE
+    WHEN model LIKE '%fable%' OR model LIKE '%mythos%' THEN
+      (COALESCE(input_tokens,0) * 10.0 + COALESCE(output_tokens,0) * 50.0 + COALESCE(cache_creation_tokens,0) * 20.0 + COALESCE(cache_read_tokens,0) * 1.00) / 1000000.0
+    WHEN model LIKE '%opus-4-1%' THEN
+      (COALESCE(input_tokens,0) * 15.0 + COALESCE(output_tokens,0) * 75.0 + COALESCE(cache_creation_tokens,0) * 30.0 + COALESCE(cache_read_tokens,0) * 1.50) / 1000000.0
+    WHEN model LIKE '%haiku-3-5%' OR model LIKE '%haiku-3.5%' THEN
+      (COALESCE(input_tokens,0) * 0.80 + COALESCE(output_tokens,0) * 4.0 + COALESCE(cache_creation_tokens,0) * 1.60 + COALESCE(cache_read_tokens,0) * 0.08) / 1000000.0
+    WHEN model LIKE '%sonnet-5%' THEN
+      (COALESCE(input_tokens,0) * 2.0 + COALESCE(output_tokens,0) * 10.0 + COALESCE(cache_creation_tokens,0) * 4.0 + COALESCE(cache_read_tokens,0) * 0.20) / 1000000.0
+    WHEN model LIKE '%opus%' THEN
+      (COALESCE(input_tokens,0) * 5.0 + COALESCE(output_tokens,0) * 25.0 + COALESCE(cache_creation_tokens,0) * 10.0 + COALESCE(cache_read_tokens,0) * 0.50) / 1000000.0
+    WHEN model LIKE '%haiku%' THEN
+      (COALESCE(input_tokens,0) * 1.0 + COALESCE(output_tokens,0) * 5.0 + COALESCE(cache_creation_tokens,0) * 2.0 + COALESCE(cache_read_tokens,0) * 0.10) / 1000000.0
+    ELSE
+      (COALESCE(input_tokens,0) * 3.0 + COALESCE(output_tokens,0) * 15.0 + COALESCE(cache_creation_tokens,0) * 6.0 + COALESCE(cache_read_tokens,0) * 0.30) / 1000000.0
   END
 `;
 

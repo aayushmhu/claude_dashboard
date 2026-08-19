@@ -1,12 +1,33 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { RowDataPacket } from '@/lib/db';
+import { resolveModelPricing } from '@/lib/utils';
 
-// Per-model cost expression. Sonnet is the default (Claude Code's default model);
-// Opus is ~5× Sonnet and Haiku is ~4× cheaper. Applying a single hardcoded rate to
-// mixed-model data understates Opus cost and overstates Haiku cost.
+// Per-model cost expression. Applies per-version rates; fable/mythos at $10/$50,
+// opus-4-1 at $15/$75, haiku-3-5 at $0.80/$4, sonnet-5 at $2/$10,
+// remaining opus at $5/$25, remaining haiku at $1/$5, else sonnet at $3/$15.
 const COST_SQL = `(
   CASE
+    WHEN e.model LIKE '%fable%' OR e.model LIKE '%mythos%' THEN
+      COALESCE(e.input_tokens, 0)          * 10.0  / 1000000 +
+      COALESCE(e.output_tokens, 0)         * 50.0  / 1000000 +
+      COALESCE(e.cache_creation_tokens, 0) * 20.0  / 1000000 +
+      COALESCE(e.cache_read_tokens, 0)     * 1.00  / 1000000
+    WHEN e.model LIKE '%opus-4-1%' THEN
+      COALESCE(e.input_tokens, 0)          * 15.0  / 1000000 +
+      COALESCE(e.output_tokens, 0)         * 75.0  / 1000000 +
+      COALESCE(e.cache_creation_tokens, 0) * 30.0  / 1000000 +
+      COALESCE(e.cache_read_tokens, 0)     * 1.50  / 1000000
+    WHEN e.model LIKE '%haiku-3-5%' OR e.model LIKE '%haiku-3.5%' THEN
+      COALESCE(e.input_tokens, 0)          * 0.80  / 1000000 +
+      COALESCE(e.output_tokens, 0)         * 4.0   / 1000000 +
+      COALESCE(e.cache_creation_tokens, 0) * 1.60  / 1000000 +
+      COALESCE(e.cache_read_tokens, 0)     * 0.08  / 1000000
+    WHEN e.model LIKE '%sonnet-5%' THEN
+      COALESCE(e.input_tokens, 0)          * 2.0   / 1000000 +
+      COALESCE(e.output_tokens, 0)         * 10.0  / 1000000 +
+      COALESCE(e.cache_creation_tokens, 0) * 4.0   / 1000000 +
+      COALESCE(e.cache_read_tokens, 0)     * 0.20  / 1000000
     WHEN e.model LIKE '%opus%' THEN
       COALESCE(e.input_tokens, 0)          * 5.0   / 1000000 +
       COALESCE(e.output_tokens, 0)         * 25.0  / 1000000 +
@@ -208,10 +229,11 @@ export async function GET() {
     const cacheRatio = totalBytesIn > 0 ? totalCacheRead / totalBytesIn : 0;
     if (agentCount >= t.agent_min_calls && avgInput > t.agent_min_avg_input && cacheRatio < t.agent_max_cache_ratio) {
       // Potential savings: if 70% of currently-uncached input were cached, those
-      // tokens would cost $0.30/M instead of $3/M. Stated assumption surfaced in
-      // savingSubtext below — never hide assumptions.
+      // tokens would cost cache_read/M instead of input/M. Using Sonnet 4.6 as the
+      // representative model for aggregate savings estimates (mixed-model sessions).
       const uncached = Math.max(0, totalInput - totalCacheRead);
-      const potentialSaving = uncached * CACHE_HIT_ASSUMPTION * (3.0 - 0.30) / 1000000;
+      const _sp = resolveModelPricing('claude-sonnet-4-6');
+      const potentialSaving = uncached * CACHE_HIT_ASSUMPTION * (_sp.input - _sp.cache_read) / 1_000_000;
       insights.push({
         id: 'subagent-cache-miss',
         type: 'cache',
@@ -504,16 +526,17 @@ export async function GET() {
     `);
     const cwnr = cwnrRows[0];
     if (cwnr && Number(cwnr.session_count) >= t.cache_write_no_read_min_sessions) {
-      // Premium paid: cache_creation (1h rate) costs 2× fresh input ($6 vs $3 per M for Sonnet).
-      // Sloppy but indicative: take Sonnet's $3/M premium.
-      const wastedPremium = Number(cwnr.wasted_writes) * 3 / 1_000_000;
+      // Premium paid: cache_creation (1h rate) costs 2× fresh input (cache_write vs input per M).
+      // Using Sonnet 4.6 as the representative model for this aggregate estimate.
+      const _cwnrP = resolveModelPricing('claude-sonnet-4-6');
+      const wastedPremium = Number(cwnr.wasted_writes) * (_cwnrP.cache_write - _cwnrP.input) / 1_000_000;
       insights.push({
         id: 'cache-write-without-read',
         type: 'cache',
         title: `${cwnr.session_count} sessions paid the cache write premium without reading back`,
-        body: `Cache writes (1h) cost 2× fresh input ($6/M vs $3/M on Sonnet). When the cache isn't reused, that premium is just wasted spend — usually because the cache key changed between turns or the session ended too quickly.`,
+        body: `Cache writes (1h) cost 2× fresh input ($6/M vs $3/M on Sonnet 4.6). When the cache isn't reused, that premium is just wasted spend — usually because the cache key changed between turns or the session ended too quickly.`,
         saving: wastedPremium > 0.10 ? `~$${wastedPremium.toFixed(2)} premium wasted` : undefined,
-        savingSubtext: wastedPremium > 0.10 ? `at Sonnet cache-write premium` : undefined,
+        savingSubtext: wastedPremium > 0.10 ? `at Sonnet 4.6 cache-write premium` : undefined,
         details: {
           metrics: [
             { label: 'Affected sessions', value: `${cwnr.session_count}` },
@@ -623,8 +646,10 @@ export async function GET() {
     const noCache = noCacheRows[0];
     if (noCache && Number(noCache.session_count) >= t.no_caching_min_sessions) {
       const freshInput = Number(noCache.total_fresh_input);
-      // If 70% of fresh input had been cached on subsequent turns, save (0.7 × $3 − $0.30)/M = $1.89/M
-      const potentialSaving = freshInput * 0.7 * (3.0 - 0.30) / 1_000_000;
+      // If 70% of fresh input had been cached on subsequent turns, save (input − cache_read)/M.
+      // Using Sonnet 4.6 as the representative model for this aggregate estimate.
+      const _ncP = resolveModelPricing('claude-sonnet-4-6');
+      const potentialSaving = freshInput * 0.7 * (_ncP.input - _ncP.cache_read) / 1_000_000;
       insights.push({
         id: 'prompt-caching-not-enabled',
         type: 'cache',

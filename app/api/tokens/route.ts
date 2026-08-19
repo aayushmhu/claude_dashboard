@@ -5,6 +5,18 @@ import { calcCost } from '@/lib/utils';
 
 // Per-row cost SQL — no table prefix (for queries on cc_events directly)
 const COST_SQL = `(CASE
+  WHEN model LIKE '%fable%' OR model LIKE '%mythos%' THEN
+    COALESCE(input_tokens,0)*10/1e6 + COALESCE(output_tokens,0)*50/1e6 +
+    COALESCE(cache_creation_tokens,0)*20/1e6 + COALESCE(cache_read_tokens,0)*1.0/1e6
+  WHEN model LIKE '%opus-4-1%' THEN
+    COALESCE(input_tokens,0)*15/1e6 + COALESCE(output_tokens,0)*75/1e6 +
+    COALESCE(cache_creation_tokens,0)*30/1e6 + COALESCE(cache_read_tokens,0)*1.5/1e6
+  WHEN model LIKE '%haiku-3-5%' OR model LIKE '%haiku-3.5%' THEN
+    COALESCE(input_tokens,0)*0.8/1e6 + COALESCE(output_tokens,0)*4/1e6 +
+    COALESCE(cache_creation_tokens,0)*1.6/1e6 + COALESCE(cache_read_tokens,0)*0.08/1e6
+  WHEN model LIKE '%sonnet-5%' THEN
+    COALESCE(input_tokens,0)*2/1e6 + COALESCE(output_tokens,0)*10/1e6 +
+    COALESCE(cache_creation_tokens,0)*4/1e6 + COALESCE(cache_read_tokens,0)*0.2/1e6
   WHEN model LIKE '%opus%' THEN
     COALESCE(input_tokens,0)*5/1e6 + COALESCE(output_tokens,0)*25/1e6 +
     COALESCE(cache_creation_tokens,0)*10/1e6 + COALESCE(cache_read_tokens,0)*0.5/1e6
@@ -18,6 +30,18 @@ END)`;
 
 // Same expression with e. table prefix (for JOINed queries)
 const COST_SQL_E = `(CASE
+  WHEN e.model LIKE '%fable%' OR e.model LIKE '%mythos%' THEN
+    COALESCE(e.input_tokens,0)*10/1e6 + COALESCE(e.output_tokens,0)*50/1e6 +
+    COALESCE(e.cache_creation_tokens,0)*20/1e6 + COALESCE(e.cache_read_tokens,0)*1.0/1e6
+  WHEN e.model LIKE '%opus-4-1%' THEN
+    COALESCE(e.input_tokens,0)*15/1e6 + COALESCE(e.output_tokens,0)*75/1e6 +
+    COALESCE(e.cache_creation_tokens,0)*30/1e6 + COALESCE(e.cache_read_tokens,0)*1.5/1e6
+  WHEN e.model LIKE '%haiku-3-5%' OR e.model LIKE '%haiku-3.5%' THEN
+    COALESCE(e.input_tokens,0)*0.8/1e6 + COALESCE(e.output_tokens,0)*4/1e6 +
+    COALESCE(e.cache_creation_tokens,0)*1.6/1e6 + COALESCE(e.cache_read_tokens,0)*0.08/1e6
+  WHEN e.model LIKE '%sonnet-5%' THEN
+    COALESCE(e.input_tokens,0)*2/1e6 + COALESCE(e.output_tokens,0)*10/1e6 +
+    COALESCE(e.cache_creation_tokens,0)*4/1e6 + COALESCE(e.cache_read_tokens,0)*0.2/1e6
   WHEN e.model LIKE '%opus%' THEN
     COALESCE(e.input_tokens,0)*5/1e6 + COALESCE(e.output_tokens,0)*25/1e6 +
     COALESCE(e.cache_creation_tokens,0)*10/1e6 + COALESCE(e.cache_read_tokens,0)*0.5/1e6

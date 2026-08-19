@@ -9,14 +9,30 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
-import { calcCost, formatCost } from '@/lib/utils';
+import { resolveModelPricing, formatCost } from '@/lib/utils';
 
-type ModelKey = 'opus' | 'sonnet' | 'haiku';
+interface ModelOption {
+  id: string;         // canonical model ID (passed to resolveModelPricing)
+  label: string;      // display name matching family-card labels
+  retired?: boolean;
+}
 
-const MODEL_OPTIONS: { key: ModelKey; label: string; versions: string }[] = [
-  { key: 'opus',   label: 'Opus',   versions: '4.7 · 4.6 · 4.5' },
-  { key: 'sonnet', label: 'Sonnet', versions: '4.6 · 4.5' },
-  { key: 'haiku',  label: 'Haiku',  versions: '4.5' },
+const MODEL_OPTIONS: ModelOption[] = [
+  { id: 'claude-fable-5',    label: 'Fable 5' },
+  { id: 'claude-mythos-5',   label: 'Mythos 5' },
+  { id: 'claude-opus-5',     label: 'Opus 5' },
+  { id: 'claude-opus-4-8',   label: 'Opus 4.8' },
+  { id: 'claude-opus-4-7',   label: 'Opus 4.7' },
+  { id: 'claude-opus-4-6',   label: 'Opus 4.6' },
+  { id: 'claude-opus-4-5',   label: 'Opus 4.5' },
+  { id: 'claude-opus-4-1',   label: 'Opus 4.1', retired: true },
+  { id: 'claude-opus-4',     label: 'Opus 4',   retired: true },
+  { id: 'claude-sonnet-5',   label: 'Sonnet 5' },
+  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+  { id: 'claude-sonnet-4-5', label: 'Sonnet 4.5' },
+  { id: 'claude-sonnet-4',   label: 'Sonnet 4', retired: true },
+  { id: 'claude-haiku-4-5',  label: 'Haiku 4.5' },
+  { id: 'claude-haiku-3-5',  label: 'Haiku 3.5', retired: true },
 ];
 
 interface FieldSpec {
@@ -39,24 +55,24 @@ const EMPTY_VALUES: Record<FieldSpec['key'], string> = {
 };
 
 export function Calculator() {
-  const [model, setModel] = useState<ModelKey>('sonnet');
+  const [modelId, setModelId] = useState<string>('claude-sonnet-4-6');
   const [values, setValues] = useState<Record<FieldSpec['key'], string>>(EMPTY_VALUES);
   const isDirty = Object.values(values).some((v) => v !== '');
   const reset = () => setValues(EMPTY_VALUES);
 
-  const cost = useMemo(() => {
+  const { cost, pricing } = useMemo(() => {
     const num = (v: string) => {
       const n = Number(v);
       return Number.isFinite(n) && n > 0 ? n : 0;
     };
-    return calcCost(
-      num(values.input),
-      num(values.output),
-      num(values.cacheWrite),
-      num(values.cacheRead),
-      model,
-    );
-  }, [model, values]);
+    const p = resolveModelPricing(modelId);
+    const c =
+      num(values.input)      * p.input       / 1_000_000 +
+      num(values.output)     * p.output      / 1_000_000 +
+      num(values.cacheWrite) * p.cache_write / 1_000_000 +
+      num(values.cacheRead)  * p.cache_read  / 1_000_000;
+    return { cost: c, pricing: p };
+  }, [modelId, values]);
 
   return (
     <section className="space-y-3">
@@ -69,15 +85,17 @@ export function Calculator() {
         <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-4 items-end">
           <div className="space-y-1.5">
             <label className="text-xs text-muted-foreground">Model</label>
-            <Select value={model} onValueChange={(v) => setModel(v as ModelKey)}>
+            <Select value={modelId} onValueChange={(v) => setModelId(v)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {MODEL_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.key} value={opt.key}>
+                  <SelectItem key={opt.id} value={opt.id}>
                     <span>{opt.label}</span>
-                    <span className="ml-2 text-[11px] font-mono text-muted-foreground/70">{opt.versions}</span>
+                    {opt.retired && (
+                      <span className="ml-2 text-[10px] font-medium text-amber-600 dark:text-amber-400">Retired</span>
+                    )}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -105,6 +123,26 @@ export function Calculator() {
                 />
               </div>
             ))}
+          </div>
+        </div>
+
+        {/* Current rates for selected model */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          <div className="rounded-md bg-muted/40 px-2.5 py-1.5">
+            <span className="text-muted-foreground">Input</span>
+            <span className="ml-1.5 font-mono text-foreground">{formatCost(pricing.input)}/M</span>
+          </div>
+          <div className="rounded-md bg-muted/40 px-2.5 py-1.5">
+            <span className="text-muted-foreground">Output</span>
+            <span className="ml-1.5 font-mono text-foreground">{formatCost(pricing.output)}/M</span>
+          </div>
+          <div className="rounded-md bg-muted/40 px-2.5 py-1.5">
+            <span className="text-muted-foreground">Cache Write 1h</span>
+            <span className="ml-1.5 font-mono text-foreground">{formatCost(pricing.cache_write)}/M</span>
+          </div>
+          <div className="rounded-md bg-muted/40 px-2.5 py-1.5">
+            <span className="text-muted-foreground">Cache Read</span>
+            <span className="ml-1.5 font-mono text-foreground">{formatCost(pricing.cache_read)}/M</span>
           </div>
         </div>
 
